@@ -1,15 +1,15 @@
 // Messenger class.
 // Copyright (C) 2009-2010 Lex Li
-// 
+//
 // Permission is hereby granted, free of charge, to any person obtaining a copy of this
 // software and associated documentation files (the "Software"), to deal in the Software
 // without restriction, including without limitation the rights to use, copy, modify, merge,
 // publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons
 // to whom the Software is furnished to do so, subject to the following conditions:
-// 
+//
 // The above copyright notice and this permission notice shall be included in all copies or
 // substantial portions of the Software.
-// 
+//
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
 // INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
 // PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
@@ -22,7 +22,7 @@
  * User: lextm
  * Date: 2009/3/29
  * Time: 17:52
- * 
+ *
  * To change this template use Tools | Options | Coding | Edit Standard Headers.
  */
 using System;
@@ -32,6 +32,7 @@ using System.Globalization;
 using System.Net;
 using Lextm.SharpSnmpLib.Security;
 using System.Threading.Tasks;
+using System.Net.Sockets;
 
 namespace Lextm.SharpSnmpLib.Messaging
 {
@@ -283,7 +284,7 @@ namespace Lextm.SharpSnmpLib.Messaging
         /// <param name="report">The report.</param>
         /// <returns>Returns row count if the OID is a table. Otherwise this value is meaningless.</returns>
         /// <remarks>This method only supports SNMP v2c and v3.</remarks>
-        public static async Task<int> BulkWalkAsync(VersionCode version, IPEndPoint endpoint, OctetString community, OctetString contextName, ObjectIdentifier table, IList<Variable> list, int maxRepetitions, WalkMode mode, IPrivacyProvider privacy, ISnmpMessage report)
+        public static async Task<int> BulkWalkAsync(VersionCode version, IPEndPoint endpoint, OctetString community, OctetString contextName, ObjectIdentifier table, IList<Variable> list, int maxRepetitions, WalkMode mode, IPrivacyProvider privacy, ISnmpMessage report, Socket socket = null)
         {
             if (list == null)
             {
@@ -294,7 +295,7 @@ namespace Lextm.SharpSnmpLib.Messaging
             var seed = tableV;
             var result = 0;
             var message = report;
-            var data = await BulkHasNextAsync(version, endpoint, community, contextName, seed, maxRepetitions, privacy, message).ConfigureAwait(false);
+            var data = await BulkHasNextAsync(version, endpoint, community, contextName, seed, maxRepetitions, privacy, message, socket).ConfigureAwait(false);
             var next = data.Item2;
             message = data.Item3;
             while (data.Item1)
@@ -323,7 +324,7 @@ namespace Lextm.SharpSnmpLib.Messaging
                 }
 
                 seed = next[next.Count - 1];
-                data = await BulkHasNextAsync(version, endpoint, community, contextName, seed, maxRepetitions, privacy, message).ConfigureAwait(false);
+                data = await BulkHasNextAsync(version, endpoint, community, contextName, seed, maxRepetitions, privacy, message, socket).ConfigureAwait(false);
                 next = data.Item2;
                 message = data.Item3;
             }
@@ -513,7 +514,7 @@ namespace Lextm.SharpSnmpLib.Messaging
         /// <c>true</c> if the specified seed has next item; otherwise, <c>false</c>.
         /// </returns>
         /// <remarks>This method supports SNMP v2c and v3.</remarks>
-        private static async Task<Tuple<bool, IList<Variable>, ISnmpMessage>> BulkHasNextAsync(VersionCode version, IPEndPoint receiver, OctetString community, OctetString contextName, Variable seed, int maxRepetitions, IPrivacyProvider privacy, ISnmpMessage report)
+        private static async Task<Tuple<bool, IList<Variable>, ISnmpMessage>> BulkHasNextAsync(VersionCode version, IPEndPoint receiver, OctetString community, OctetString contextName, Variable seed, int maxRepetitions, IPrivacyProvider privacy, ISnmpMessage report, Socket socket = null)
         {
             // TODO: report should be updated with latest message from agent.
             if (version == VersionCode.V1)
@@ -542,7 +543,7 @@ namespace Lextm.SharpSnmpLib.Messaging
                                                       0,
                                                       maxRepetitions,
                                                       variables);
-            var reply = await request.GetResponseAsync(receiver).ConfigureAwait(false);
+            var reply = await (socket == null ? request.GetResponseAsync(receiver) : request.GetResponseAsync(receiver, socket)).ConfigureAwait(false);
             if (reply is ReportMessage)
             {
                 if (reply.Pdu().Variables.Count == 0)
@@ -572,7 +573,7 @@ namespace Lextm.SharpSnmpLib.Messaging
                     privacy,
                     MaxMessageSize,
                     reply);
-                reply = await request.GetResponseAsync(receiver).ConfigureAwait(false);
+                reply = await (socket == null ? request.GetResponseAsync(receiver) : request.GetResponseAsync(receiver, socket)).ConfigureAwait(false);
             }
             else if (reply.Pdu().ErrorStatus.ToInt32() != 0)
             {
@@ -911,7 +912,7 @@ namespace Lextm.SharpSnmpLib.Messaging
         [Obsolete("Please use other overloading ones.")]
         public static void SendInform(int requestId, VersionCode version, IPEndPoint receiver, OctetString community, ObjectIdentifier enterprise, uint timestamp, IList<Variable> variables, int timeout, IPrivacyProvider privacy, ISnmpMessage report)
             => SendInform(requestId, version, receiver, community, OctetString.Empty, enterprise, timestamp, variables, timeout, privacy, report);
-     
+
         /// <summary>
         /// Sends INFORM message.
         /// </summary>
@@ -1182,10 +1183,10 @@ namespace Lextm.SharpSnmpLib.Messaging
         }
 
         /// <summary>
-        /// Max message size used in #SNMP. 
+        /// Max message size used in #SNMP.
         /// </summary>
         /// <remarks>
-        /// You can use any value for your own application. 
+        /// You can use any value for your own application.
         /// Also this value may be changed in #SNMP in future releases.
         /// </remarks>
         public static int MaxMessageSize { get; set; } = Header.MaxMessageSize;
